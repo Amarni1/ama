@@ -110,6 +110,11 @@ export function useMiniMask() {
         MiniMask.getAddressAsync(),
         MiniMask.balanceAsync()
       ]);
+
+      if (!nextAddress) {
+        throw new Error("Unable to fetch wallet address.");
+      }
+
       const normalizedBalances = normalizeTokenBalances(nextBalance);
 
       setAddress(String(nextAddress ?? ""));
@@ -139,6 +144,11 @@ export function useMiniMask() {
         MiniMask.getAddressAsync(),
         MiniMask.balanceAsync()
       ]);
+
+      if (!nextAddress) {
+        throw new Error("Unable to fetch wallet address.");
+      }
+
       const normalizedBalances = normalizeTokenBalances(nextBalance);
 
       setAddress(String(nextAddress ?? ""));

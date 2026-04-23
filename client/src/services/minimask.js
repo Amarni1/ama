@@ -12,24 +12,113 @@ function getMiniMask() {
   return window.MINIMASK;
 }
 
-function unwrapResponse(result, fallback = "") {
-  if (result && typeof result === "object") {
-    if ("response" in result && Array.isArray(result.response)) {
-      return result.response;
-    }
+function logUnknownFormat(operation, response) {
+  console.warn(`[MiniMask] Unknown ${operation} response format:`, response);
+}
 
-    if ("response" in result && result.response && typeof result.response === "object") {
-      if ("address" in result.response) {
-        return result.response.address;
-      }
-
-      if ("balance" in result.response) {
-        return result.response.balance;
-      }
-    }
+function extractPayload(response) {
+  if (!response || typeof response !== "object") {
+    return response;
   }
 
-  return result ?? fallback;
+  if ("response" in response) {
+    return response.response;
+  }
+
+  if ("data" in response) {
+    return response.data;
+  }
+
+  return response;
+}
+
+export function extractAddress(response) {
+  if (!response) {
+    return null;
+  }
+
+  if (typeof response === "string") {
+    return response;
+  }
+
+  if (response.response?.address) {
+    return response.response.address;
+  }
+
+  if (response.data?.address) {
+    return response.data.address;
+  }
+
+  if (typeof response.data === "string") {
+    return response.data;
+  }
+
+  if (typeof response.response === "string") {
+    return response.response;
+  }
+
+  if (response.address) {
+    return response.address;
+  }
+
+  return null;
+}
+
+function extractBalance(response) {
+  if (response === undefined || response === null) {
+    return null;
+  }
+
+  if (typeof response === "string" || typeof response === "number" || Array.isArray(response)) {
+    return response;
+  }
+
+  if (response.response?.balance !== undefined) {
+    return response.response.balance;
+  }
+
+  if (response.data?.balance !== undefined) {
+    return response.data.balance;
+  }
+
+  if (response.balance !== undefined) {
+    return response.balance;
+  }
+
+  const payload = extractPayload(response);
+  if (payload !== undefined && payload !== response) {
+    return payload;
+  }
+
+  return null;
+}
+
+function extractCoins(response) {
+  if (Array.isArray(response)) {
+    return response;
+  }
+
+  if (Array.isArray(response?.response)) {
+    return response.response;
+  }
+
+  if (Array.isArray(response?.data)) {
+    return response.data;
+  }
+
+  if (Array.isArray(response?.response?.coins)) {
+    return response.response.coins;
+  }
+
+  if (Array.isArray(response?.data?.coins)) {
+    return response.data.coins;
+  }
+
+  if (Array.isArray(response?.coins)) {
+    return response.coins;
+  }
+
+  return null;
 }
 
 export const MiniMask = {
@@ -46,21 +135,37 @@ export const MiniMask = {
     }
 
     minimask.init((result) => {
-      callback?.(unwrapResponse(result, result));
+      callback?.(extractPayload(result) ?? result);
     });
   },
 
   getAddress(callback) {
     ensureMiniMask();
     window.MINIMASK.account.getAddress((result) => {
-      callback(unwrapResponse(result));
+      const address = extractAddress(result);
+
+      if (address) {
+        callback(address);
+        return;
+      }
+
+      logUnknownFormat("getAddress", result);
+      callback(null);
     });
   },
 
   balance(callback) {
     ensureMiniMask();
     window.MINIMASK.account.balance((result) => {
-      callback(unwrapResponse(result));
+      const balance = extractBalance(result);
+
+      if (balance !== null) {
+        callback(balance);
+        return;
+      }
+
+      logUnknownFormat("balance", result);
+      callback([]);
     });
   },
 
@@ -70,7 +175,7 @@ export const MiniMask = {
     const state = { 0: safeAmount, 1: address };
 
     window.MINIMASK.account.send(safeAmount, address, "0x00", state, (result) => {
-      callback(unwrapResponse(result, result));
+      callback(extractPayload(result) ?? result);
     });
   },
 
@@ -82,7 +187,15 @@ export const MiniMask = {
     }
 
     window.MINIMASK.account.coins((result) => {
-      callback(unwrapResponse(result, []));
+      const coins = extractCoins(result);
+
+      if (coins) {
+        callback(coins);
+        return;
+      }
+
+      logUnknownFormat("coins", result);
+      callback([]);
     });
   },
 
@@ -94,7 +207,7 @@ export const MiniMask = {
     }
 
     minimask.meg.checktxpow(txpowid, (result) => {
-      callback(unwrapResponse(result, result));
+      callback(extractPayload(result) ?? result);
     });
   },
 

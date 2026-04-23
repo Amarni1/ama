@@ -42,6 +42,11 @@ export default function WalletCard({
               >
                 {connected ? "Connected" : "Idle"}
               </span>
+              {connected ? (
+                <span className="rounded-full bg-ma-gold/15 px-3 py-1 text-[11px] font-bold uppercase tracking-[0.22em] text-ma-gold">
+                  {formatWalletAddress(address)}
+                </span>
+              ) : null}
             </div>
             <h2 className="mt-3 font-display text-3xl font-semibold text-slate-900 dark:text-white">
               MiniMask control center
