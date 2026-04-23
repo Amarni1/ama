@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { MiniMask } from "../services/minimask";
+import {
+  buildFallbackSendableBalances,
+  normalizeSendableBalances
+} from "../services/sendableBalances";
 import { normalizeTokenBalances } from "../services/walletData";
 
 const POLL_INTERVAL_MS = 500;
@@ -26,6 +30,7 @@ export function useMiniMask() {
   const [address, setAddress] = useState("");
   const [balance, setBalance] = useState("");
   const [tokenBalances, setTokenBalances] = useState([]);
+  const [sendableBalances, setSendableBalances] = useState([]);
   const [error, setError] = useState("");
   const [isInitialized, setIsInitialized] = useState(false);
 
@@ -95,78 +100,71 @@ export function useMiniMask() {
     };
   }, [clearTimers, detectMiniMask]);
 
+  const readWalletState = useCallback(async () => {
+    if (!MiniMask.isAvailable()) {
+      throw new Error(getUnavailableMessage());
+    }
+
+    if (!isInitialized) {
+      await MiniMask.initAsync();
+      setIsInitialized(true);
+    }
+
+    const nextAddress = await MiniMask.getAddressAsync();
+
+    if (!nextAddress) {
+      throw new Error("Unable to fetch wallet address.");
+    }
+
+    const [nextBalance, fullBalance] = await Promise.all([
+      MiniMask.balanceAsync(),
+      MiniMask.balanceFullAsync(nextAddress, 3, true, true).catch(() => null)
+    ]);
+
+    const normalizedBalances = normalizeTokenBalances(nextBalance);
+    const normalizedSendable = fullBalance
+      ? normalizeSendableBalances(fullBalance)
+      : buildFallbackSendableBalances(normalizedBalances);
+    const primaryBalance =
+      normalizedSendable.find((item) => item.symbol === "MINIMA")?.sendable ||
+      normalizedSendable[0]?.sendable ||
+      normalizedBalances[0]?.amount ||
+      String(nextBalance ?? "");
+
+    setAddress(String(nextAddress ?? ""));
+    setTokenBalances(normalizedBalances);
+    setSendableBalances(normalizedSendable);
+    setBalance(primaryBalance);
+    setError("");
+
+    return {
+      address: String(nextAddress ?? ""),
+      balance: primaryBalance,
+      sendableBalances: normalizedSendable,
+      tokenBalances: normalizedBalances
+    };
+  }, [isInitialized]);
+
   const connect = useCallback(async () => {
     try {
-      if (!MiniMask.isAvailable()) {
-        throw new Error(getUnavailableMessage());
-      }
-
-      if (!isInitialized) {
-        await MiniMask.initAsync();
-        setIsInitialized(true);
-      }
-
-      const [nextAddress, nextBalance] = await Promise.all([
-        MiniMask.getAddressAsync(),
-        MiniMask.balanceAsync()
-      ]);
-
-      if (!nextAddress) {
-        throw new Error("Unable to fetch wallet address.");
-      }
-
-      const normalizedBalances = normalizeTokenBalances(nextBalance);
-
-      setAddress(String(nextAddress ?? ""));
-      setTokenBalances(normalizedBalances);
-      setBalance(normalizedBalances[0]?.amount ?? String(nextBalance ?? ""));
-      setError("");
-      return String(nextAddress ?? "");
+      const nextState = await readWalletState();
+      return nextState.address;
     } catch (currentError) {
       const message = currentError.message || "Unable to connect MiniMask.";
       setError(message);
       throw new Error(message);
     }
-  }, [isInitialized]);
+  }, [readWalletState]);
 
   const refresh = useCallback(async () => {
     try {
-      if (!MiniMask.isAvailable()) {
-        throw new Error(getUnavailableMessage());
-      }
-
-      if (!isInitialized) {
-        await MiniMask.initAsync();
-        setIsInitialized(true);
-      }
-
-      const [nextAddress, nextBalance] = await Promise.all([
-        MiniMask.getAddressAsync(),
-        MiniMask.balanceAsync()
-      ]);
-
-      if (!nextAddress) {
-        throw new Error("Unable to fetch wallet address.");
-      }
-
-      const normalizedBalances = normalizeTokenBalances(nextBalance);
-
-      setAddress(String(nextAddress ?? ""));
-      setBalance(normalizedBalances[0]?.amount ?? String(nextBalance ?? ""));
-      setTokenBalances(normalizedBalances);
-      setError("");
-
-      return {
-        address: String(nextAddress ?? ""),
-        balance: normalizedBalances[0]?.amount ?? String(nextBalance ?? ""),
-        tokenBalances: normalizedBalances
-      };
+      return await readWalletState();
     } catch (currentError) {
       const message = currentError.message || "Unable to refresh MiniMask.";
       setError(message);
       throw new Error(message);
     }
-  }, [isInitialized]);
+  }, [readWalletState]);
 
   const send = useCallback(async (amount, recipientAddress, options = {}) => {
     try {
@@ -221,6 +219,7 @@ export function useMiniMask() {
     loadCoins,
     refresh,
     send,
+    sendableBalances,
     tokenBalances
   };
 }

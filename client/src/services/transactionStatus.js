@@ -166,7 +166,7 @@ export function buildSwapFlow(phase, quote, txpowid = "") {
       phase,
       txpowid,
       title: "Swap Successful",
-      badge: "Confirmed",
+      badge: "Success",
       summary,
       detail: "Confirmed on network."
     };

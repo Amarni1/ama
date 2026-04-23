@@ -1,34 +1,47 @@
-import { useMiniMask } from "../hooks/useMiniMask";
+import StatusPanel from "../components/StatusPanel";
 import TransactionHistory from "../components/TransactionHistory";
+import { useMiniMask } from "../hooks/useMiniMask";
+import { useSwapDex } from "../hooks/useSwapDex";
 
 export default function Transactions() {
-  const { address, isAvailable, isChecking, loadCoins } = useMiniMask();
+  const { address, refresh, send, sendableBalances } = useMiniMask();
+  const dex = useSwapDex({
+    address,
+    refreshWallet: refresh,
+    send
+  });
 
   return (
     <div className="space-y-6">
       <section className="panel-surface p-6">
         <p className="section-kicker">Transaction Safety</p>
         <h2 className="mt-3 font-display text-3xl font-semibold text-slate-900 dark:text-white">
-          Confirmation-first workflow
+          Treasury verification workflow
         </h2>
         <div className="mt-6 grid gap-4">
           <div className="surface-muted p-4 text-slate-700 dark:text-slate-200">
-            All send requests are reviewed by the backend intent parser first.
+            Every swap deposit is signed in MiniMask before the backend touches treasury funds.
           </div>
           <div className="surface-muted p-4 text-slate-700 dark:text-slate-200">
-            The backend returns confirmation copy instead of executing transfers.
+            The backend verifies the deposit on-chain before requesting the reserve payout.
           </div>
           <div className="surface-muted p-4 text-slate-700 dark:text-slate-200">
-            MiniMask is only invoked after a user confirms in the UI.
+            Success is only shown after the payout transaction is confirmed on the network.
           </div>
         </div>
       </section>
 
+      <StatusPanel
+        connected={Boolean(address)}
+        status={dex.status}
+        tokenCount={sendableBalances.length}
+        transactionFlow={dex.transactionFlow}
+      />
+
       <TransactionHistory
-        address={address}
-        isAvailable={isAvailable}
-        isChecking={isChecking}
-        loadCoins={loadCoins}
+        error={dex.historyError}
+        items={dex.history}
+        loading={dex.historyLoading}
       />
     </div>
   );

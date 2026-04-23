@@ -4,11 +4,12 @@ import LoadingDots from "./LoadingDots";
 
 const quickPrompts = [
   "Hello MA",
-  "How do I connect my wallet?",
   "Swap 10 minima to usdt",
-  "Show token prices",
-  "Explain Minima like I'm new",
-  "How does blockchain security work?"
+  "Convert 25 lucos to ma",
+  "How much is 15 ma in minima?",
+  "What is sendable balance?",
+  "How does the treasury swap route work?",
+  "Show token prices"
 ];
 
 export default function ChatBox({ onIntent }) {
@@ -18,7 +19,7 @@ export default function ChatBox({ onIntent }) {
   const [messages, setMessages] = useState([
     {
       role: "ai",
-      text: "Welcome to Minima AI. I can help with wallet actions, Minima education, blockchain concepts, and secure transaction guidance."
+      text: "Welcome to Minima AI Swap DEX. I can quote treasury swaps, explain sendable balances, guide MiniMask actions, and answer Minima questions."
     }
   ]);
 
@@ -47,7 +48,7 @@ export default function ChatBox({ onIntent }) {
           { role: "ai", text: result.reply ?? result.message }
         ]);
       });
-      onIntent(result);
+      onIntent?.(result);
     } catch (error) {
       startTransition(() => {
         setMessages((current) => [...current, { role: "ai", text: error.message }]);
@@ -69,10 +70,10 @@ export default function ChatBox({ onIntent }) {
           <div>
             <p className="section-kicker">MA Concierge</p>
             <h2 className="mt-2 font-display text-3xl font-semibold text-slate-900 dark:text-white">
-              Conversational wallet intelligence
+              AI trade assistant
             </h2>
             <p className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-              Ask naturally about wallets, Minima, blockchain concepts, or secure transfers.
+              Ask naturally about swap routes, token prices, sendable balances, wallet setup, or Minima fundamentals.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -136,7 +137,7 @@ export default function ChatBox({ onIntent }) {
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Ask about greetings, wallet help, Minima, blockchain concepts, or secure transfers..."
+              placeholder="Ask for swap quotes, treasury-route help, token prices, or wallet guidance..."
               className="min-h-28 w-full resize-none bg-transparent px-2 py-2 text-base font-semibold text-slate-950 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-slate-500"
             />
             <div className="mt-3 flex justify-end">

@@ -121,6 +121,16 @@ function extractCoins(response) {
   return null;
 }
 
+function ensureMegMethod(methodName) {
+  const minimask = getMiniMask();
+
+  if (typeof minimask.meg?.[methodName] !== "function") {
+    throw new Error(`MiniMask does not support meg.${methodName} in this browser session.`);
+  }
+
+  return minimask.meg[methodName].bind(minimask.meg);
+}
+
 export const MiniMask = {
   isAvailable() {
     return typeof window !== "undefined" && Boolean(window.MINIMASK?.account);
@@ -212,6 +222,65 @@ export const MiniMask = {
     });
   },
 
+  random(callback) {
+    const method = ensureMegMethod("random");
+    method((result) => {
+      callback(extractPayload(result) ?? result);
+    });
+  },
+
+  createSeed(seedPhrase, callback) {
+    const method = ensureMegMethod("createseed");
+    method(seedPhrase, (result) => {
+      callback(extractPayload(result) ?? result);
+    });
+  },
+
+  balanceFull(address, depth = 3, includeCoins = true, includeTokens = true, callback) {
+    const method = ensureMegMethod("balancefull");
+    method(address, depth, includeCoins, includeTokens, (result) => {
+      callback(extractPayload(result) ?? result);
+    });
+  },
+
+  megSend(amount, address, tokenid, fromAddress, privateKey, script, keyUses, split, callback) {
+    const method = ensureMegMethod("send");
+    method(
+      String(amount),
+      address,
+      tokenid,
+      fromAddress,
+      privateKey,
+      script,
+      keyUses,
+      split,
+      (result) => {
+        callback(extractPayload(result) ?? result);
+      }
+    );
+  },
+
+  rawTxn(inputs, outputs, scripts, state, callback) {
+    const method = ensureMegMethod("rawtxn");
+    method(inputs, outputs, scripts, state, (result) => {
+      callback(extractPayload(result) ?? result);
+    });
+  },
+
+  signTxn(txndata, privateKey, keyUses, post, callback) {
+    const method = ensureMegMethod("signtxn");
+    method(txndata, privateKey, keyUses, post, (result) => {
+      callback(extractPayload(result) ?? result);
+    });
+  },
+
+  viewTxn(txndata, callback) {
+    const method = ensureMegMethod("viewtxn");
+    method(txndata, (result) => {
+      callback(extractPayload(result) ?? result);
+    });
+  },
+
   getAddressAsync() {
     return new Promise((resolve, reject) => {
       try {
@@ -266,6 +335,86 @@ export const MiniMask = {
     return new Promise((resolve, reject) => {
       try {
         this.checkTxPow(txpowid, (result) => resolve(result));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+
+  randomAsync() {
+    return new Promise((resolve, reject) => {
+      try {
+        this.random((result) => resolve(result));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+
+  createSeedAsync(seedPhrase) {
+    return new Promise((resolve, reject) => {
+      try {
+        this.createSeed(seedPhrase, (result) => resolve(result));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+
+  balanceFullAsync(address, depth = 3, includeCoins = true, includeTokens = true) {
+    return new Promise((resolve, reject) => {
+      try {
+        this.balanceFull(address, depth, includeCoins, includeTokens, (result) => resolve(result));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+
+  megSendAsync(amount, address, tokenid, fromAddress, privateKey, script, keyUses, split = 1) {
+    return new Promise((resolve, reject) => {
+      try {
+        this.megSend(
+          amount,
+          address,
+          tokenid,
+          fromAddress,
+          privateKey,
+          script,
+          keyUses,
+          split,
+          (result) => resolve(result)
+        );
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+
+  rawTxnAsync(inputs, outputs, scripts, state) {
+    return new Promise((resolve, reject) => {
+      try {
+        this.rawTxn(inputs, outputs, scripts, state, (result) => resolve(result));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+
+  signTxnAsync(txndata, privateKey, keyUses, post) {
+    return new Promise((resolve, reject) => {
+      try {
+        this.signTxn(txndata, privateKey, keyUses, post, (result) => resolve(result));
+      } catch (error) {
+        reject(error);
+      }
+    });
+  },
+
+  viewTxnAsync(txndata) {
+    return new Promise((resolve, reject) => {
+      try {
+        this.viewTxn(txndata, (result) => resolve(result));
       } catch (error) {
         reject(error);
       }

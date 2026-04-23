@@ -44,6 +44,34 @@ export const api = {
       body: JSON.stringify({ message })
     });
   },
+  getSwapConfig() {
+    return request("/api/swaps/config");
+  },
+  getSwapQuote(payload) {
+    return request("/api/swaps/quote", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  createSwapRequest(payload) {
+    return request("/api/swaps/requests", {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  submitSwapRequest(recordId, payload) {
+    return request(`/api/swaps/requests/${recordId}/submit`, {
+      method: "POST",
+      body: JSON.stringify(payload)
+    });
+  },
+  getSwapRequest(recordId) {
+    return request(`/api/swaps/requests/${recordId}`);
+  },
+  getSwapHistory(walletAddress = "") {
+    const query = walletAddress ? `?wallet=${encodeURIComponent(walletAddress)}` : "";
+    return request(`/api/swaps/history${query}`);
+  },
   getWalletHealth() {
     return request("/api/wallet");
   }

@@ -38,12 +38,12 @@ export default function StatusPanel({ connected, status, tokenCount, transaction
     },
     {
       label: "Assets",
-      value: `${tokenCount} tracked token${tokenCount === 1 ? "" : "s"}`,
+      value: `${tokenCount} sendable token${tokenCount === 1 ? "" : "s"}`,
       accent: "text-slate-900 dark:text-white"
     },
     {
       label: "Assistant",
-      value: "Ready for wallet, swaps, education, and blockchain help",
+      value: "Ready for treasury swaps, wallet help, and Minima guidance",
       accent: "text-slate-900 dark:text-white"
     }
   ];

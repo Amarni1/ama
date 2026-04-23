@@ -2,6 +2,7 @@ import cors from "cors";
 import express from "express";
 import helmet from "helmet";
 import chatRouter from "./routes/chat.js";
+import swapsRouter from "./routes/swaps.js";
 import walletRouter from "./routes/wallet.js";
 import { apiRateLimit } from "./middleware/rateLimit.js";
 import { requestLogger } from "./middleware/requestLogger.js";
@@ -24,6 +25,7 @@ app.get("/health", (_request, response) => {
 });
 
 app.use("/api/chat", chatRouter);
+app.use("/api/swaps", swapsRouter);
 app.use("/api/wallet", walletRouter);
 
 app.listen(PORT, () => {

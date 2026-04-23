@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
+import ReservePanel from "../components/ReservePanel";
 import TransactionHistory from "../components/TransactionHistory";
 import WalletCard from "../components/WalletCard";
 import { useMiniMask } from "../hooks/useMiniMask";
+import { useSwapDex } from "../hooks/useSwapDex";
 
 export default function Wallet() {
   const [status, setStatus] = useState("");
@@ -12,10 +14,16 @@ export default function Wallet() {
     error,
     isAvailable,
     isChecking,
-    loadCoins,
     refresh,
+    send,
+    sendableBalances,
     tokenBalances
   } = useMiniMask();
+  const dex = useSwapDex({
+    address,
+    refreshWallet: refresh,
+    send
+  });
 
   async function connectWallet() {
     try {
@@ -28,7 +36,7 @@ export default function Wallet() {
 
   async function refreshWallet() {
     try {
-      await refresh();
+      await dex.refreshAll();
       setStatus("Wallet refreshed.");
     } catch (currentError) {
       setStatus(currentError.message);
@@ -36,7 +44,7 @@ export default function Wallet() {
   }
 
   useEffect(() => {
-    refreshWallet();
+    void refreshWallet();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleInstallMiniMask() {
@@ -55,18 +63,18 @@ export default function Wallet() {
         onInstall={handleInstallMiniMask}
         onRefresh={refreshWallet}
         connected={Boolean(address)}
-        tokenBalances={tokenBalances}
+        tokenBalances={sendableBalances.length ? sendableBalances : tokenBalances}
       />
+      <ReservePanel config={dex.config} />
       {status ? (
         <section className="panel-surface p-6 text-sm text-slate-700 dark:text-slate-200">
           {status}
         </section>
       ) : null}
       <TransactionHistory
-        address={address}
-        isAvailable={isAvailable}
-        isChecking={isChecking}
-        loadCoins={loadCoins}
+        error={dex.historyError}
+        items={dex.history}
+        loading={dex.historyLoading}
       />
     </div>
   );

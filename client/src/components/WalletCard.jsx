@@ -52,8 +52,8 @@ export default function WalletCard({
               MiniMask control center
             </h2>
             <p className="mt-2 max-w-2xl text-sm leading-7 text-slate-600 dark:text-slate-300">
-              Securely inspect balances, refresh wallet data, and prepare transactions for
-              MiniMask confirmation.
+              Securely inspect sendable balances, refresh wallet data, and prepare treasury
+              deposits for MiniMask confirmation.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -104,7 +104,7 @@ export default function WalletCard({
 
           <div className="surface-muted bg-[linear-gradient(135deg,rgba(212,175,55,0.12),rgba(255,255,255,0.88))] p-5 dark:bg-[linear-gradient(135deg,rgba(212,175,55,0.18),rgba(255,255,255,0.03))]">
             <p className="text-xs uppercase tracking-[0.25em] text-slate-400 dark:text-slate-500">
-              Primary balance
+              Primary sendable
             </p>
             <p className="mt-3 font-display text-4xl font-semibold text-slate-900 dark:text-white">
               {balance || "--"}

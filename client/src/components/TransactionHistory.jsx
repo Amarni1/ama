@@ -1,12 +1,14 @@
 import { motion } from "framer-motion";
-import { useEffect, useState } from "react";
-import { formatHistoryTimestamp, mergeHistory } from "../services/transactionHistory";
+import {
+  compactHash,
+  formatHistoryTimestamp,
+  formatSwapHistorySummary
+} from "../services/transactionHistory";
 import LoadingDots from "./LoadingDots";
 
 function HistoryCard({ item }) {
-  const isSent = item.direction === "sent";
   const statusText = String(item.status || "").toLowerCase();
-  const statusClass = statusText.includes("confirm")
+  const statusClass = statusText.includes("confirm") || statusText.includes("success")
     ? "rounded-full bg-emerald-100 px-3 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/15 dark:text-emerald-300"
     : statusText.includes("submitting")
       ? "rounded-full bg-sky-100 px-3 py-1 text-xs font-medium text-sky-700 dark:bg-sky-500/15 dark:text-sky-300"
@@ -14,13 +16,11 @@ function HistoryCard({ item }) {
       ? "rounded-full bg-amber-100 px-3 py-1 text-xs font-medium text-amber-800 dark:bg-amber-500/15 dark:text-amber-300"
       : statusText.includes("submitted")
         ? "rounded-full bg-slate-900 px-3 py-1 text-xs font-medium text-ma-gold dark:bg-white/10"
-        : statusText.includes("failed")
-          ? "rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
-        : statusText.includes("timeout")
-          ? "rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
-          : isSent
-            ? "rounded-full bg-slate-950 px-3 py-1 text-xs font-medium text-ma-gold dark:bg-white/10"
-            : "rounded-full bg-[#fff4cc] px-3 py-1 text-xs font-medium text-slate-800 dark:bg-ma-gold/15 dark:text-ma-gold";
+    : statusText.includes("failed")
+      ? "rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
+      : statusText.includes("timeout")
+        ? "rounded-full bg-rose-100 px-3 py-1 text-xs font-medium text-rose-700 dark:bg-rose-500/15 dark:text-rose-300"
+        : "rounded-full bg-[#fff4cc] px-3 py-1 text-xs font-medium text-slate-800 dark:bg-ma-gold/15 dark:text-ma-gold";
 
   return (
     <motion.article
@@ -30,11 +30,9 @@ function HistoryCard({ item }) {
     >
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-ma-gold">
-            {isSent ? "Sent" : "Received"}
-          </p>
+          <p className="text-xs uppercase tracking-[0.3em] text-ma-gold">Treasury Swap</p>
           <h3 className="mt-2 text-lg font-semibold text-slate-900 dark:text-white">
-            {item.amount} {item.asset || "Minima"}
+            {formatSwapHistorySummary(item)}
           </h3>
         </div>
         <span
@@ -45,66 +43,30 @@ function HistoryCard({ item }) {
       </div>
 
       <div className="mt-4 space-y-3 text-sm text-slate-600 dark:text-slate-300">
-        <p className="break-all rounded-[18px] bg-[#fffaf0] px-4 py-3 dark:bg-white/5">
-          {item.address}
+        <p className="rounded-[18px] bg-[#fffaf0] px-4 py-3 dark:bg-white/5">
+          Wallet: {compactHash(item.walletAddress)}
         </p>
-        {item.detail ? <p>{item.detail}</p> : null}
-        <p>{formatHistoryTimestamp(item.timestamp)}</p>
+        <p className="rounded-[18px] bg-[#fffaf0] px-4 py-3 dark:bg-white/5">
+          Treasury: {compactHash(item.treasuryAddress)}
+        </p>
+        {item.depositTxpowid ? (
+          <p className="rounded-[18px] bg-[#fffaf0] px-4 py-3 dark:bg-white/5">
+            Deposit Tx: {compactHash(item.depositTxpowid)}
+          </p>
+        ) : null}
+        {item.payoutTxpowid ? (
+          <p className="rounded-[18px] bg-[#fffaf0] px-4 py-3 dark:bg-white/5">
+            Payout Tx: {compactHash(item.payoutTxpowid)}
+          </p>
+        ) : null}
+        {item.statusDetail ? <p>{item.statusDetail}</p> : null}
+        <p>{formatHistoryTimestamp(item.updatedAt || item.createdAt || Date.now())}</p>
       </div>
     </motion.article>
   );
 }
 
-export default function TransactionHistory({
-  address,
-  isAvailable,
-  isChecking,
-  loadCoins,
-  refreshToken = 0
-}) {
-  const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-
-  useEffect(() => {
-    let active = true;
-
-    async function loadHistory() {
-      if (isChecking) {
-        return;
-      }
-
-      setLoading(true);
-
-      try {
-        const rawCoins = isAvailable && loadCoins ? await loadCoins() : [];
-        if (!active) {
-          return;
-        }
-
-        setItems(mergeHistory(rawCoins, address));
-        setError("");
-      } catch (currentError) {
-        if (!active) {
-          return;
-        }
-
-        setItems(mergeHistory([], address));
-        setError(currentError.message || "Unable to load transaction history.");
-      } finally {
-        if (active) {
-          setLoading(false);
-        }
-      }
-    }
-
-    loadHistory();
-
-    return () => {
-      active = false;
-    };
-  }, [address, isAvailable, isChecking, loadCoins, refreshToken]);
-
+export default function TransactionHistory({ items = [], loading = false, error = "" }) {
   const hasItems = items.length > 0;
 
   return (
@@ -113,10 +75,10 @@ export default function TransactionHistory({
         <div>
           <p className="section-kicker">History</p>
           <h2 className="mt-2 font-display text-3xl font-semibold text-slate-900 dark:text-white">
-            Transaction Activity
+            Swap Activity
           </h2>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">
-            Signed transfers and detected on-chain wallet activity with readable timestamps.
+            Treasury-routed swap deposits and payouts with live timestamps and tx references.
           </p>
         </div>
         {loading ? (
@@ -148,9 +110,9 @@ export default function TransactionHistory({
 
       {!loading && !hasItems ? (
         <div className="mt-6 rounded-[24px] border border-dashed border-ma-gold/40 bg-[#fffaf0] p-8 text-center dark:bg-white/5">
-          <p className="text-lg font-semibold text-slate-900 dark:text-white">No transactions yet</p>
+          <p className="text-lg font-semibold text-slate-900 dark:text-white">No swaps yet</p>
           <p className="mt-2 text-sm text-slate-500 dark:text-slate-300">
-            Successful sends and detected wallet activity will appear here.
+            Submitted treasury swaps will appear here after you sign them in MiniMask.
           </p>
         </div>
       ) : null}

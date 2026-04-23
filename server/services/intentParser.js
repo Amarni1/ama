@@ -128,6 +128,16 @@ export function parseIntent(message) {
     return { intent: "WALLET_HELP" };
   }
 
+  if (
+    normalized.includes("sendable balance") ||
+    normalized.includes("treasury reserve") ||
+    normalized.includes("payout") ||
+    normalized.includes("swap route") ||
+    normalized.includes("dex")
+  ) {
+    return { intent: "DEX_HELP" };
+  }
+
   if (normalized.includes("blockchain")) {
     return { intent: "BLOCKCHAIN_HELP" };
   }
