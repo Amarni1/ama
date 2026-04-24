@@ -69,7 +69,21 @@ export function isTxConfirmed(result) {
 }
 
 export function buildTransactionFlow(phase, transaction, txpowid = "") {
-  const summary = `${transaction.amount} Minima sent to ${formatWalletAddress(transaction.address)}`;
+  const token = transaction.token || "MINIMA";
+  const summary = `${transaction.amount} ${token} sent to ${formatWalletAddress(
+    transaction.address || transaction.recipientAddress
+  )}`;
+
+  if (phase === "submitting") {
+    return {
+      phase,
+      txpowid,
+      title: "Preparing Transaction",
+      badge: "Signing",
+      summary,
+      detail: "Opening MiniMask for signature approval."
+    };
+  }
 
   if (phase === "submitted") {
     return {
@@ -112,6 +126,17 @@ export function buildTransactionFlow(phase, transaction, txpowid = "") {
       badge: "Timed out",
       summary,
       detail: "Still waiting for on-chain confirmation."
+    };
+  }
+
+  if (phase === "failed") {
+    return {
+      phase,
+      txpowid,
+      title: "Transaction Failed",
+      badge: "Failed",
+      summary,
+      detail: "MiniMask could not submit the transaction."
     };
   }
 

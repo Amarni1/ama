@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MiniMask } from "../services/minimask";
 import {
+  buildTransactionFlow,
   TX_CONFIRMATION_TIMEOUT_MS,
   TX_POLL_INTERVAL_MS,
   buildSwapFlow,
@@ -11,10 +12,17 @@ import {
   DEFAULT_SIGNAL_AMOUNT,
   TOKEN_OPTIONS,
   buildDirectModeConfig,
-  buildDirectSwapQuote
+  buildDirectSwapQuote,
+  getTokenId
 } from "../services/swapEngine";
+import {
+  formatDisplayedAmount,
+  getOwnedTokenBalances,
+  getTokenSendableBalance,
+  prioritizeOwnedTokens
+} from "../services/walletPortfolio";
 
-const DEFAULT_STATUS_MESSAGE = "Connect MiniMask to activate Direct On-Chain Mode.";
+const DEFAULT_STATUS_MESSAGE = "Connect MiniMask to activate the wallet action widget.";
 
 let cachedSwapSession = {
   history: [],
@@ -32,7 +40,7 @@ function updateCachedSwapSession(patch) {
 }
 
 function mergeHistoryRecord(current, nextRecord) {
-  const nextId = nextRecord.id || nextRecord.txpowid || `swap-${Date.now()}`;
+  const nextId = nextRecord.id || nextRecord.txpowid || `activity-${Date.now()}`;
 
   return [
     { ...nextRecord, id: nextId },
@@ -52,9 +60,136 @@ function updateHistoryRecord(current, recordId, patch) {
   );
 }
 
-export function useSwapDex({ address, refreshWallet, send }) {
+function getSwapDisabledReason({ address, amount, fromToken, previewQuote, sourceBalance }) {
+  if (!address) {
+    return "Connect MiniMask to swap.";
+  }
+
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    return "Enter a valid swap amount.";
+  }
+
+  if (!previewQuote) {
+    return "Choose two different tokens to quote the swap.";
+  }
+
+  if (sourceBalance <= 0) {
+    return `No sendable ${fromToken} available.`;
+  }
+
+  if (numericAmount > sourceBalance) {
+    return `Only ${formatDisplayedAmount(sourceBalance)} ${fromToken} is sendable.`;
+  }
+
+  return "";
+}
+
+function getSendDisabledReason({ address, amount, recipientAddress, sourceBalance, token }) {
+  if (!address) {
+    return "Connect MiniMask to send funds.";
+  }
+
+  if (!recipientAddress.trim()) {
+    return "Enter a recipient address.";
+  }
+
+  const numericAmount = Number(amount);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
+    return "Enter a valid send amount.";
+  }
+
+  if (sourceBalance <= 0) {
+    return `No sendable ${token} available.`;
+  }
+
+  if (numericAmount > sourceBalance) {
+    return `Only ${formatDisplayedAmount(sourceBalance)} ${token} is sendable.`;
+  }
+
+  return "";
+}
+
+function buildFlow(type, phase, payload, txpowid = "") {
+  return type === "send"
+    ? buildTransactionFlow(phase, payload, txpowid)
+    : buildSwapFlow(phase, payload, txpowid);
+}
+
+function buildHistoryPatch(type, phase, errorMessage = "") {
+  if (type === "send") {
+    if (phase === "submitted") {
+      return {
+        status: "submitted",
+        statusDetail: "Submitted to MiniMask and broadcast to the network."
+      };
+    }
+
+    if (phase === "processing") {
+      return {
+        status: "processing",
+        statusDetail: "Waiting for on-chain confirmation."
+      };
+    }
+
+    if (phase === "success") {
+      return {
+        status: "success",
+        statusDetail: "Confirmed on network."
+      };
+    }
+
+    if (phase === "timeout") {
+      return {
+        status: "timeout",
+        statusDetail: "Still waiting for on-chain confirmation."
+      };
+    }
+
+    return {
+      status: "failed",
+      statusDetail: errorMessage || "MiniMask could not submit the wallet send."
+    };
+  }
+
+  if (phase === "submitted") {
+    return {
+      status: "submitted",
+      statusDetail: "Submitted to MiniMask and broadcast to the network."
+    };
+  }
+
+  if (phase === "processing") {
+    return {
+      status: "processing",
+      statusDetail: "Waiting for on-chain confirmation."
+    };
+  }
+
+  if (phase === "success") {
+    return {
+      status: "success",
+      statusDetail: "Confirmed on network."
+    };
+  }
+
+  if (phase === "timeout") {
+    return {
+      status: "timeout",
+      statusDetail: "Still waiting for on-chain confirmation."
+    };
+  }
+
+  return {
+    status: "failed",
+    statusDetail: errorMessage || "MiniMask could not submit the swap request."
+  };
+}
+
+export function useSwapDex({ address, refreshWallet, send, sendableBalances = [] }) {
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [swapLoading, setSwapLoading] = useState(false);
+  const [sendLoading, setSendLoading] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState(cachedSwapSession.historyError);
   const [status, setStatus] = useState(cachedSwapSession.status);
@@ -66,15 +201,56 @@ export function useSwapDex({ address, refreshWallet, send }) {
     fromToken: "MINIMA",
     toToken: "USDT"
   });
+  const [sendForm, setSendForm] = useState({
+    address: "",
+    amount: "",
+    token: "MINIMA"
+  });
 
   const pollTimerRef = useRef(null);
-  const activeSwapIdRef = useRef("");
 
   const config = useMemo(() => buildDirectModeConfig(address), [address]);
-  const availableTokens = useMemo(() => TOKEN_OPTIONS, []);
+  const availableTokens = useMemo(
+    () => prioritizeOwnedTokens(TOKEN_OPTIONS, sendableBalances),
+    [sendableBalances]
+  );
+  const ownedTokenBalances = useMemo(
+    () => getOwnedTokenBalances(sendableBalances),
+    [sendableBalances]
+  );
   const previewQuote = useMemo(
     () => buildDirectSwapQuote(form.amount, form.fromToken, form.toToken, address),
     [address, form.amount, form.fromToken, form.toToken]
+  );
+  const sourceBalance = useMemo(
+    () => getTokenSendableBalance(sendableBalances, form.fromToken),
+    [form.fromToken, sendableBalances]
+  );
+  const sendSourceBalance = useMemo(
+    () => getTokenSendableBalance(sendableBalances, sendForm.token),
+    [sendForm.token, sendableBalances]
+  );
+  const swapDisabledReason = useMemo(
+    () =>
+      getSwapDisabledReason({
+        address,
+        amount: form.amount,
+        fromToken: form.fromToken,
+        previewQuote,
+        sourceBalance
+      }),
+    [address, form.amount, form.fromToken, previewQuote, sourceBalance]
+  );
+  const sendDisabledReason = useMemo(
+    () =>
+      getSendDisabledReason({
+        address,
+        amount: sendForm.amount,
+        recipientAddress: sendForm.address,
+        sourceBalance: sendSourceBalance,
+        token: sendForm.token
+      }),
+    [address, sendForm.address, sendForm.amount, sendForm.token, sendSourceBalance]
   );
 
   const stopPolling = useCallback(() => {
@@ -84,46 +260,14 @@ export function useSwapDex({ address, refreshWallet, send }) {
     }
   }, []);
 
-  const requestQuote = useCallback(async (override = {}) => {
-    setQuoteLoading(true);
-
-    try {
-      const nextQuote = buildDirectSwapQuote(
-        override.amount ?? form.amount,
-        override.fromToken ?? form.fromToken,
-        override.toToken ?? form.toToken,
-        address
-      );
-
-      if (!nextQuote) {
-        throw new Error("Unable to build a quote for that swap pair.");
-      }
-
-      setQuote(nextQuote);
-      setStatus(
-        nextQuote.metadataOnly
-          ? "Quote ready. This will be recorded as a direct on-chain swap request."
-          : "Quote ready. MiniMask will create a token-aware on-chain swap signal."
-      );
-      return nextQuote;
-    } catch (error) {
-      setStatus(error.message || "Unable to prepare the swap quote.");
-      throw error;
-    } finally {
-      setQuoteLoading(false);
-    }
-  }, [address, form.amount, form.fromToken, form.toToken]);
-
-  const beginPolling = useCallback((recordId, nextQuote, txpowid) => {
+  const beginPolling = useCallback((recordId, type, payload, txpowid) => {
     stopPolling();
-    activeSwapIdRef.current = recordId;
     const startedAt = Date.now();
 
-    setTransactionFlow(buildSwapFlow("processing", nextQuote, txpowid));
+    setTransactionFlow(buildFlow(type, "processing", payload, txpowid));
     setHistory((current) =>
       updateHistoryRecord(current, recordId, {
-        status: "processing",
-        statusDetail: "Waiting for on-chain confirmation.",
+        ...buildHistoryPatch(type, "processing"),
         txpowid
       })
     );
@@ -133,11 +277,10 @@ export function useSwapDex({ address, refreshWallet, send }) {
       try {
         if (Date.now() - startedAt >= TX_CONFIRMATION_TIMEOUT_MS) {
           stopPolling();
-          setTransactionFlow(buildSwapFlow("timeout", nextQuote, txpowid));
+          setTransactionFlow(buildFlow(type, "timeout", payload, txpowid));
           setHistory((current) =>
             updateHistoryRecord(current, recordId, {
-              status: "timeout",
-              statusDetail: "Still waiting for on-chain confirmation.",
+              ...buildHistoryPatch(type, "timeout"),
               txpowid
             })
           );
@@ -151,23 +294,23 @@ export function useSwapDex({ address, refreshWallet, send }) {
         }
 
         stopPolling();
-        setTransactionFlow(buildSwapFlow("success", nextQuote, txpowid));
+        setTransactionFlow(buildFlow(type, "success", payload, txpowid));
         setHistory((current) =>
           updateHistoryRecord(current, recordId, {
-            status: "success",
-            statusDetail: "Confirmed on network.",
+            ...buildHistoryPatch(type, "success"),
             txpowid
           })
         );
-        setStatus("Direct on-chain swap request confirmed on network.");
+        setStatus(type === "send"
+          ? "Wallet send confirmed on network."
+          : "Direct on-chain swap request confirmed on network.");
         await Promise.allSettled([refreshWallet ? refreshWallet() : Promise.resolve()]);
       } catch (error) {
         stopPolling();
-        setTransactionFlow(buildSwapFlow("failed", nextQuote, txpowid));
+        setTransactionFlow(buildFlow(type, "failed", payload, txpowid));
         setHistory((current) =>
           updateHistoryRecord(current, recordId, {
-            status: "failed",
-            statusDetail: error.message || "Unable to verify transaction confirmation.",
+            ...buildHistoryPatch(type, "failed", error.message),
             txpowid
           })
         );
@@ -176,13 +319,40 @@ export function useSwapDex({ address, refreshWallet, send }) {
     }, TX_POLL_INTERVAL_MS);
   }, [refreshWallet, stopPolling]);
 
+  const requestQuote = useCallback(async (override = {}) => {
+    setQuoteLoading(true);
+
+    try {
+      const nextQuote = buildDirectSwapQuote(
+        override.amount ?? form.amount,
+        override.fromToken ?? form.fromToken,
+        override.toToken ?? form.toToken,
+        address
+      );
+
+      if (!nextQuote) {
+        throw new Error("Choose two different tokens and enter a valid amount.");
+      }
+
+      setQuote(nextQuote);
+      setStatus("Quote ready. Review the widget and sign in MiniMask when ready.");
+      return nextQuote;
+    } catch (error) {
+      setStatus(error.message || "Unable to prepare the swap quote.");
+      throw error;
+    } finally {
+      setQuoteLoading(false);
+    }
+  }, [address, form.amount, form.fromToken, form.toToken]);
+
   const executeSwap = useCallback(async () => {
     const preparedQuote = quote || previewQuote;
     setSwapLoading(true);
+    setHistoryError("");
 
     try {
-      if (!address) {
-        throw new Error("Connect MiniMask before submitting a swap.");
+      if (swapDisabledReason) {
+        throw new Error(swapDisabledReason);
       }
 
       const nextQuote = preparedQuote || (await requestQuote());
@@ -190,7 +360,7 @@ export function useSwapDex({ address, refreshWallet, send }) {
         throw new Error("Unable to prepare the direct swap request.");
       }
 
-      setTransactionFlow(buildSwapFlow("submitting", nextQuote));
+      setTransactionFlow(buildFlow("swap", "submitting", nextQuote));
       setStatus("Opening MiniMask to sign the on-chain swap request.");
 
       const state = {
@@ -222,36 +392,37 @@ export function useSwapDex({ address, refreshWallet, send }) {
       setHistory((current) =>
         mergeHistoryRecord(current, {
           createdAt: Date.now(),
+          id: recordId,
           metadataOnly: nextQuote.metadataOnly,
           mode: "DIRECT_ONCHAIN",
           quote: nextQuote,
           recipientAddress: address,
           status: "submitted",
-          statusDetail: nextQuote.metadataOnly
-            ? "Submitted a direct on-chain swap request with metadata state variables."
-            : "Submitted a direct on-chain self-transfer with swap metadata.",
+          statusDetail: buildHistoryPatch("swap", "submitted").statusDetail,
           txpowid,
+          type: "swap",
           updatedAt: Date.now(),
           walletAddress: address
         })
       );
 
-      setTransactionFlow(buildSwapFlow("submitted", nextQuote, txpowid));
+      setTransactionFlow(buildFlow("swap", "submitted", nextQuote, txpowid));
       setStatus("Submitted to Minima. Waiting for chain confirmation.");
       await Promise.allSettled([refreshWallet ? refreshWallet() : Promise.resolve()]);
-      beginPolling(recordId, nextQuote, txpowid);
+      beginPolling(recordId, "swap", nextQuote, txpowid);
 
       return {
         quote: nextQuote,
         txpowid
       };
     } catch (error) {
-      setTransactionFlow(buildSwapFlow("failed", preparedQuote || previewQuote || {
+      const fallbackQuote = preparedQuote || previewQuote || {
         amount: Number(form.amount || 0),
         fromToken: form.fromToken,
         receiveAmount: "0",
         toToken: form.toToken
-      }));
+      };
+      setTransactionFlow(buildFlow("swap", "failed", fallbackQuote));
       setStatus(error.message || "Unable to execute the on-chain swap request.");
       setHistoryError(error.message || "Unable to execute the on-chain swap request.");
       throw error;
@@ -268,8 +439,79 @@ export function useSwapDex({ address, refreshWallet, send }) {
     quote,
     refreshWallet,
     requestQuote,
-    send
+    send,
+    swapDisabledReason
   ]);
+
+  const executeSend = useCallback(async () => {
+    const nextTransaction = {
+      address: sendForm.address.trim(),
+      amount: String(sendForm.amount || ""),
+      token: sendForm.token
+    };
+
+    setSendLoading(true);
+    setHistoryError("");
+
+    try {
+      if (sendDisabledReason) {
+        throw new Error(sendDisabledReason);
+      }
+
+      setTransactionFlow(buildFlow("send", "submitting", nextTransaction));
+      setStatus("Opening MiniMask to sign the wallet send.");
+
+      const sendResult = await send(nextTransaction.amount, nextTransaction.address, {
+        state: {
+          0: "SEND",
+          1: nextTransaction.token,
+          2: nextTransaction.amount,
+          3: nextTransaction.address,
+          4: "WALLET_ASSISTANT"
+        },
+        tokenid: getTokenId(nextTransaction.token) || "0x00"
+      });
+
+      const txpowid = extractTxPowId(sendResult);
+      if (!txpowid) {
+        throw new Error("MiniMask did not return a transaction id.");
+      }
+
+      const recordId = txpowid || `send-${Date.now()}`;
+      setHistory((current) =>
+        mergeHistoryRecord(current, {
+          amount: nextTransaction.amount,
+          createdAt: Date.now(),
+          id: recordId,
+          recipientAddress: nextTransaction.address,
+          status: "submitted",
+          statusDetail: buildHistoryPatch("send", "submitted").statusDetail,
+          token: nextTransaction.token,
+          txpowid,
+          type: "send",
+          updatedAt: Date.now(),
+          walletAddress: address
+        })
+      );
+
+      setTransactionFlow(buildFlow("send", "submitted", nextTransaction, txpowid));
+      setStatus("Submitted to Minima. Waiting for chain confirmation.");
+      await Promise.allSettled([refreshWallet ? refreshWallet() : Promise.resolve()]);
+      beginPolling(recordId, "send", nextTransaction, txpowid);
+
+      return {
+        transaction: nextTransaction,
+        txpowid
+      };
+    } catch (error) {
+      setTransactionFlow(buildFlow("send", "failed", nextTransaction));
+      setStatus(error.message || "Unable to submit the wallet send.");
+      setHistoryError(error.message || "Unable to submit the wallet send.");
+      throw error;
+    } finally {
+      setSendLoading(false);
+    }
+  }, [address, beginPolling, refreshWallet, send, sendDisabledReason, sendForm.address, sendForm.amount, sendForm.token]);
 
   const applyAiQuote = useCallback((nextQuote) => {
     if (!nextQuote) {
@@ -281,16 +523,27 @@ export function useSwapDex({ address, refreshWallet, send }) {
       fromToken: nextQuote.fromToken || "MINIMA",
       toToken: nextQuote.toToken || "USDT"
     });
-    setQuote(buildDirectSwapQuote(
-      nextQuote.amount,
-      nextQuote.fromToken,
-      nextQuote.toToken,
-      address
-    ));
+    setQuote(
+      buildDirectSwapQuote(nextQuote.amount, nextQuote.fromToken, nextQuote.toToken, address)
+    );
     setStatus(
       `AI staged ${nextQuote.amount} ${nextQuote.fromToken} -> ${nextQuote.receiveAmount} ${nextQuote.toToken}.`
     );
   }, [address]);
+
+  const applyAiSend = useCallback((nextDraft) => {
+    if (!nextDraft) {
+      return;
+    }
+
+    setSendForm((current) => ({
+      ...current,
+      address: nextDraft.address || current.address,
+      amount: String(nextDraft.amount ?? current.amount ?? ""),
+      token: nextDraft.token || current.token
+    }));
+    setStatus(`AI staged a ${nextDraft.amount} ${nextDraft.token} wallet send.`);
+  }, []);
 
   const refreshAll = useCallback(async () => {
     setHistoryLoading(true);
@@ -306,6 +559,13 @@ export function useSwapDex({ address, refreshWallet, send }) {
 
   const setField = useCallback((field, value) => {
     setForm((current) => ({
+      ...current,
+      [field]: value
+    }));
+  }, []);
+
+  const setSendField = useCallback((field, value) => {
+    setSendForm((current) => ({
       ...current,
       [field]: value
     }));
@@ -350,26 +610,82 @@ export function useSwapDex({ address, refreshWallet, send }) {
     }
   }, [form, quote]);
 
+  useEffect(() => {
+    if (!ownedTokenBalances.length) {
+      return;
+    }
+
+    const primaryOwnedToken = ownedTokenBalances[0].symbol || ownedTokenBalances[0].token;
+    const alternateToken = availableTokens.find((token) => token !== primaryOwnedToken) || primaryOwnedToken;
+
+    setForm((current) => {
+      if (getTokenSendableBalance(sendableBalances, current.fromToken) > 0) {
+        return current;
+      }
+
+      const nextFromToken = primaryOwnedToken;
+      const nextToToken = current.toToken === nextFromToken ? alternateToken : current.toToken;
+
+      if (
+        current.fromToken === nextFromToken &&
+        current.toToken === nextToToken
+      ) {
+        return current;
+      }
+
+      return {
+        ...current,
+        fromToken: nextFromToken,
+        toToken: nextToToken
+      };
+    });
+
+    setSendForm((current) => {
+      if (getTokenSendableBalance(sendableBalances, current.token) > 0 || current.amount || current.address) {
+        return current;
+      }
+
+      if (current.token === primaryOwnedToken) {
+        return current;
+      }
+
+      return {
+        ...current,
+        token: primaryOwnedToken
+      };
+    });
+  }, [availableTokens, ownedTokenBalances, sendableBalances]);
+
   useEffect(() => stopPolling, [stopPolling]);
 
   return {
     activeQuote: quote,
     applyAiQuote,
+    applyAiSend,
     availableTokens,
     config,
     configLoading: false,
+    executeSend,
     executeSwap,
     form,
     flipTokens,
     history,
     historyError,
     historyLoading,
+    ownedTokenBalances,
     previewQuote,
     quoteLoading,
     refreshAll,
     requestQuote,
+    sendDisabledReason,
+    sendForm,
+    sendLoading,
+    sendSourceBalance,
     setField,
+    setSendField,
+    sourceBalance,
     status,
+    swapDisabledReason,
     swapLoading,
     transactionFlow
   };

@@ -26,3 +26,18 @@ export function formatSwapHistorySummary(item) {
 
   return `${item.quote.amount} ${item.quote.fromToken} -> ${item.quote.receiveAmount} ${item.quote.toToken}`;
 }
+
+export function formatHistoryLabel(item) {
+  return item?.type === "send" ? "Wallet Send" : "Direct Swap";
+}
+
+export function formatHistorySummary(item) {
+  if (item?.type === "send") {
+    const amount = item?.amount || "0";
+    const token = item?.token || "MINIMA";
+    const recipient = compactHash(item?.recipientAddress || item?.address);
+    return `${amount} ${token} sent to ${recipient}`;
+  }
+
+  return formatSwapHistorySummary(item);
+}

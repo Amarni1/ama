@@ -1,9 +1,13 @@
-import { useEffect, useState } from "react";
-import ReservePanel from "../components/ReservePanel";
+import { useEffect, useMemo, useState } from "react";
+import StatusPanel from "../components/StatusPanel";
 import TransactionHistory from "../components/TransactionHistory";
 import WalletCard from "../components/WalletCard";
 import { useMiniMask } from "../hooks/useMiniMask";
 import { useSwapDex } from "../hooks/useSwapDex";
+import {
+  getOwnedTokenBalances,
+  sortBalancesByOwnership
+} from "../services/walletPortfolio";
 
 export default function Wallet() {
   const [status, setStatus] = useState("");
@@ -14,6 +18,7 @@ export default function Wallet() {
     error,
     isAvailable,
     isChecking,
+    isSyncing,
     refresh,
     send,
     sendableBalances,
@@ -22,8 +27,18 @@ export default function Wallet() {
   const dex = useSwapDex({
     address,
     refreshWallet: refresh,
-    send
+    send,
+    sendableBalances
   });
+
+  const displayedTokenBalances = useMemo(
+    () => sortBalancesByOwnership(sendableBalances.length ? sendableBalances : tokenBalances),
+    [sendableBalances, tokenBalances]
+  );
+  const ownedTokenBalances = useMemo(
+    () => getOwnedTokenBalances(sendableBalances),
+    [sendableBalances]
+  );
 
   async function connectWallet() {
     try {
@@ -56,21 +71,31 @@ export default function Wallet() {
       <WalletCard
         address={address}
         balance={balance}
+        connected={Boolean(address)}
         error={error}
         isAvailable={isAvailable}
         isChecking={isChecking}
+        isSyncing={isSyncing}
         onConnect={connectWallet}
         onInstall={handleInstallMiniMask}
         onRefresh={refreshWallet}
-        connected={Boolean(address)}
-        tokenBalances={sendableBalances.length ? sendableBalances : tokenBalances}
+        tokenBalances={displayedTokenBalances}
       />
-      <ReservePanel config={dex.config} />
-      {status ? (
-        <section className="panel-surface p-6 text-sm text-slate-700 dark:text-slate-200">
-          {status}
-        </section>
-      ) : null}
+
+      <StatusPanel
+        connected={Boolean(address)}
+        hasSpendableFunds={ownedTokenBalances.length > 0}
+        ownedTokenCount={ownedTokenBalances.length}
+        status={status || dex.status}
+        transactionFlow={dex.transactionFlow}
+      />
+
+      <section className="panel-surface p-5 text-sm font-semibold leading-7 text-slate-700 dark:text-slate-200">
+        Sendable balances are the only balances the action widget trusts. If MiniMask reports zero
+        sendable funds, swap and send actions stay disabled until your wallet can actually sign
+        those tokens.
+      </section>
+
       <TransactionHistory
         error={dex.historyError}
         items={dex.history}

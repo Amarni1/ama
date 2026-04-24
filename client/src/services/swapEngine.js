@@ -38,6 +38,10 @@ export function convertSwapAmount(amount, fromToken, toToken) {
     return null;
   }
 
+  if (source === target) {
+    return null;
+  }
+
   const numericAmount = Number(amount);
   if (!Number.isFinite(numericAmount) || numericAmount <= 0) {
     return null;

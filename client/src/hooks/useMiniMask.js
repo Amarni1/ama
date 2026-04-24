@@ -33,6 +33,7 @@ export function useMiniMask() {
   const [sendableBalances, setSendableBalances] = useState([]);
   const [error, setError] = useState("");
   const [isInitialized, setIsInitialized] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   const clearTimers = useCallback(() => {
     if (intervalRef.current) {
@@ -146,6 +147,7 @@ export function useMiniMask() {
   }, [isInitialized]);
 
   const connect = useCallback(async () => {
+    setIsSyncing(true);
     try {
       const nextState = await readWalletState();
       return nextState.address;
@@ -153,16 +155,21 @@ export function useMiniMask() {
       const message = currentError.message || "Unable to connect MiniMask.";
       setError(message);
       throw new Error(message);
+    } finally {
+      setIsSyncing(false);
     }
   }, [readWalletState]);
 
   const refresh = useCallback(async () => {
+    setIsSyncing(true);
     try {
       return await readWalletState();
     } catch (currentError) {
       const message = currentError.message || "Unable to refresh MiniMask.";
       setError(message);
       throw new Error(message);
+    } finally {
+      setIsSyncing(false);
     }
   }, [readWalletState]);
 
@@ -212,6 +219,7 @@ export function useMiniMask() {
     connect,
     error,
     isInitialized,
+    isSyncing,
     installLabel: isChecking ? "Checking for MiniMask..." : "Install MiniMask",
     isAvailable,
     isChecking,

@@ -28,11 +28,11 @@ export default function Navbar({ isDark, onToggleTheme }) {
               Minima AI
             </p>
             <h1 className="mt-1 font-display text-3xl font-semibold text-slate-900 dark:text-white sm:text-4xl">
-              Direct Swap Command
+              Wallet & Swap Copilot
             </h1>
             <p className="mt-2 max-w-2xl text-sm font-medium text-slate-700 dark:text-slate-200">
-              Gold-and-black swap dashboard with MiniMask signing, on-chain confirmation,
-              and AI-guided quote routing.
+              Gold-and-black production dashboard with MiniMask signing, live sendable balances,
+              and AI-guided wallet actions.
             </p>
           </div>
         </div>

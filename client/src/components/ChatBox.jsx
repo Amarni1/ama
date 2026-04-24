@@ -1,27 +1,42 @@
-import { startTransition, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import { respondToMessage } from "../services/chatEngine";
+import { getOwnedTokenBalances, getPortfolioSummary } from "../services/walletPortfolio";
+import { formatWalletAddress } from "../services/walletData";
 import LoadingDots from "./LoadingDots";
 
 const quickPrompts = [
-  "Hello MA",
+  "Check my balance",
+  "What tokens do I own?",
   "Swap 10 minima to usdt",
   "How much is 25 minima in usdt?",
-  "How much is 20 usdt in minima?",
-  "What is sendable balance?",
-  "How does direct on-chain mode work?",
+  "How do I send funds?",
   "Show token prices"
 ];
 
-export default function ChatBox({ onIntent }) {
+export default function ChatBox({ onIntent, walletContext = {} }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const chatBodyRef = useRef(null);
   const [messages, setMessages] = useState([
     {
       role: "ai",
-      text: "Welcome to Minima AI Swap DEX. I can quote direct on-chain swap requests, explain sendable balances, guide MiniMask actions, and answer Minima questions."
+      text:
+        "Welcome to Minima AI. I can read live MiniMask balances, detect owned tokens, stage wallet sends, prepare swap quotes, and guide on-chain confirmations."
     }
   ]);
+
+  const ownedTokens = useMemo(
+    () => getOwnedTokenBalances(walletContext.sendableBalances || []),
+    [walletContext.sendableBalances]
+  );
+
+  const assistantState = walletContext.walletAddress
+    ? ownedTokens.length > 0
+      ? `Connected to ${formatWalletAddress(walletContext.walletAddress)} with ${getPortfolioSummary(
+          walletContext.sendableBalances || []
+        )}`
+      : `Connected to ${formatWalletAddress(walletContext.walletAddress)} with zero sendable balance`
+    : "Connect MiniMask to unlock live balance checks, token detection, and send guidance.";
 
   useEffect(() => {
     if (chatBodyRef.current) {
@@ -40,8 +55,9 @@ export default function ChatBox({ onIntent }) {
     });
     setInput("");
     setLoading(true);
+
     try {
-      const result = await Promise.resolve(respondToMessage(trimmedMessage));
+      const result = await Promise.resolve(respondToMessage(trimmedMessage, walletContext));
       startTransition(() => {
         setMessages((current) => [
           ...current,
@@ -64,20 +80,21 @@ export default function ChatBox({ onIntent }) {
   }
 
   return (
-    <section className="panel-surface flex min-h-[calc(100vh-15rem)] flex-col p-0 lg:min-h-[calc(100vh-13rem)]">
+    <section className="panel-surface flex min-h-[calc(100vh-14rem)] flex-col overflow-hidden p-0 lg:min-h-[calc(100vh-12rem)]">
       <div className="border-b border-black/5 px-6 py-5 dark:border-white/10">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="section-kicker">MA Concierge</p>
             <h2 className="mt-2 font-display text-3xl font-semibold text-slate-900 dark:text-white">
-              AI swap assistant
+              Wallet-aware AI assistant
             </h2>
-            <p className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
-              Ask naturally about direct on-chain swap requests, token prices, sendable balances, wallet setup, or Minima fundamentals.
+            <p className="mt-2 text-sm font-semibold leading-7 text-slate-700 dark:text-slate-200">
+              {assistantState}
             </p>
           </div>
+
           <div className="flex flex-wrap gap-2">
-            {quickPrompts.slice(0, 2).map((prompt) => (
+            {quickPrompts.slice(0, 3).map((prompt) => (
               <button
                 key={prompt}
                 type="button"
@@ -93,7 +110,7 @@ export default function ChatBox({ onIntent }) {
 
       <div
         ref={chatBodyRef}
-        className="flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(255,250,240,0.96))] px-4 py-6 dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.96),rgba(0,0,0,0.98))] sm:px-6"
+        className="flex-1 overflow-y-auto bg-[linear-gradient(180deg,rgba(255,255,255,0.96),rgba(255,249,235,0.98))] px-4 py-6 dark:bg-[linear-gradient(180deg,rgba(1,1,1,0.98),rgba(5,7,15,1))] sm:px-6"
       >
         <div className="mx-auto flex h-full w-full max-w-4xl flex-col">
           <div className="mt-auto space-y-4">
@@ -102,23 +119,26 @@ export default function ChatBox({ onIntent }) {
                 key={`${message.role}-${index}`}
                 className={
                   message.role === "user"
-                    ? "ml-auto max-w-[88%] rounded-[24px] bg-slate-950 px-5 py-4 text-sm font-semibold leading-7 text-white shadow-raised dark:bg-ma-gold dark:text-slate-950"
-                    : "max-w-[88%] rounded-[24px] border border-[#f1ddb0] bg-[#fff6d8] px-5 py-4 text-sm font-medium leading-7 text-slate-900 shadow-[0_18px_34px_rgba(212,175,55,0.1)] dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
+                    ? "ml-auto max-w-[88%] rounded-[24px] bg-slate-950 px-5 py-4 text-sm font-bold leading-7 text-white shadow-raised dark:bg-ma-gold dark:text-slate-950"
+                    : "max-w-[88%] rounded-[24px] border border-[#f1ddb0] bg-[#fff6d8] px-5 py-4 text-sm font-semibold leading-7 text-slate-950 shadow-[0_18px_34px_rgba(212,175,55,0.1)] dark:border-white/10 dark:bg-slate-900 dark:text-slate-100"
                 }
               >
                 {message.text}
               </div>
             ))}
             {loading ? (
-              <div className="max-w-[72%] rounded-[24px] border border-[#f1ddb0] bg-[#fff6d8] px-5 py-4 text-sm font-medium leading-6 text-slate-900 shadow-[0_18px_34px_rgba(212,175,55,0.1)] dark:border-white/10 dark:bg-slate-900 dark:text-slate-100">
-                <LoadingDots label="MA is thinking" />
+              <div className="max-w-[72%] rounded-[24px] border border-[#f1ddb0] bg-[#fff6d8] px-5 py-4 text-sm font-semibold leading-6 text-slate-950 shadow-[0_18px_34px_rgba(212,175,55,0.1)] dark:border-white/10 dark:bg-slate-900 dark:text-slate-100">
+                <LoadingDots label="MA is reading your wallet context" />
               </div>
             ) : null}
           </div>
         </div>
       </div>
 
-      <form onSubmit={handleSubmit} className="border-t border-black/5 bg-white px-4 py-4 dark:border-white/10 dark:bg-black sm:px-6">
+      <form
+        onSubmit={handleSubmit}
+        className="border-t border-black/5 bg-white px-4 py-4 dark:border-white/10 dark:bg-black sm:px-6"
+      >
         <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
           <div className="flex flex-wrap gap-2">
             {quickPrompts.map((prompt) => (
@@ -126,7 +146,7 @@ export default function ChatBox({ onIntent }) {
                 key={prompt}
                 type="button"
                 onClick={() => submitMessage(prompt)}
-                className="rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-bold uppercase tracking-[0.18em] text-slate-700 transition hover:-translate-y-0.5 hover:border-ma-gold hover:text-ma-gold dark:border-white/10 dark:bg-slate-900 dark:text-slate-200"
+                className="rounded-full border border-black/10 bg-white px-3 py-2 text-xs font-extrabold uppercase tracking-[0.18em] text-slate-700 transition hover:-translate-y-0.5 hover:border-ma-gold hover:text-ma-gold dark:border-white/10 dark:bg-slate-900 dark:text-slate-200"
               >
                 {prompt}
               </button>
@@ -137,8 +157,8 @@ export default function ChatBox({ onIntent }) {
             <textarea
               value={input}
               onChange={(event) => setInput(event.target.value)}
-              placeholder="Ask for swap quotes, direct on-chain help, token prices, or wallet guidance..."
-              className="min-h-28 w-full resize-none bg-transparent px-2 py-2 text-base font-semibold text-slate-950 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-slate-500"
+              placeholder="Ask me to check balances, detect tokens, quote a swap, or stage a send..."
+              className="min-h-28 w-full resize-none bg-transparent px-2 py-2 text-base font-bold text-slate-950 outline-none placeholder:text-slate-400 dark:text-white dark:placeholder:text-slate-500"
             />
             <div className="mt-3 flex justify-end">
               <button
@@ -146,7 +166,7 @@ export default function ChatBox({ onIntent }) {
                 disabled={loading}
                 className="btn-gold justify-center disabled:pointer-events-none disabled:opacity-60"
               >
-                {loading ? "Sending..." : "Send Command"}
+                {loading ? "Thinking..." : "Send Command"}
               </button>
             </div>
           </div>

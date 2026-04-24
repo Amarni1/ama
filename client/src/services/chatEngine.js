@@ -5,14 +5,30 @@ import {
   getTokenPriceCards,
   normalizeTokenSymbol
 } from "./swapEngine";
+import {
+  formatDisplayedAmount,
+  getOwnedTokenBalances,
+  getPortfolioSummary,
+  getTokenSendableBalance
+} from "./walletPortfolio";
+import { formatWalletAddress } from "./walletData";
 
 function sanitizeMessage(message) {
   return String(message || "").replace(/[<>]/g, "").trim();
 }
 
-function extractAmount(message) {
-  const match = message.match(/(\d+(\.\d+)?)/);
-  return match ? Number(match[1]) : null;
+function resolveContext(context = {}) {
+  if (typeof context === "string") {
+    return {
+      sendableBalances: [],
+      walletAddress: context
+    };
+  }
+
+  return {
+    sendableBalances: context?.sendableBalances || [],
+    walletAddress: context?.walletAddress || context?.address || ""
+  };
 }
 
 function parseSwapQuote(message, walletAddress = "") {
@@ -48,9 +64,32 @@ function parseBestSwap(message) {
   return normalizeTokenSymbol(match[1]);
 }
 
-export function respondToMessage(message, walletAddress = "") {
+function parseSendDraft(message) {
+  const match = message.match(
+    /(?:send|transfer)\s+(\d+(\.\d+)?)\s+([a-z]+)\s+to\s+([a-z0-9]+)/i
+  );
+
+  if (!match) {
+    return null;
+  }
+
+  const token = normalizeTokenSymbol(match[3]);
+  if (!token) {
+    return null;
+  }
+
+  return {
+    address: match[4],
+    amount: match[1],
+    token
+  };
+}
+
+export function respondToMessage(message, context = {}) {
   const safeMessage = sanitizeMessage(message);
   const normalized = safeMessage.toLowerCase();
+  const { sendableBalances, walletAddress } = resolveContext(context);
+  const ownedTokens = getOwnedTokenBalances(sendableBalances);
   const directMode = buildDirectModeConfig(walletAddress);
 
   const swapQuote = parseSwapQuote(safeMessage, walletAddress);
@@ -59,7 +98,7 @@ export function respondToMessage(message, walletAddress = "") {
       intent: "SWAP_QUOTE",
       reply:
         `${swapQuote.amount} ${swapQuote.fromToken} = ${swapQuote.receiveAmount} ${swapQuote.toToken}\n\n` +
-        "This will create a real Minima transaction with swap metadata in the state variables.",
+        "I staged that quote in the swap widget. Review it and sign in MiniMask when you're ready.",
       swapQuote
     };
   }
@@ -82,6 +121,41 @@ export function respondToMessage(message, walletAddress = "") {
     };
   }
 
+  const sendDraft = parseSendDraft(safeMessage);
+  if (sendDraft) {
+    if (!walletAddress) {
+      return {
+        intent: "SEND_HELP",
+        reply: "Connect MiniMask first so I can stage that send with your live wallet."
+      };
+    }
+
+    const sendableBalance = getTokenSendableBalance(sendableBalances, sendDraft.token);
+    if (sendableBalance <= 0) {
+      return {
+        intent: "SEND_HELP",
+        reply: `You do not have any sendable ${sendDraft.token} right now. Refresh MiniMask and try again.`
+      };
+    }
+
+    if (Number(sendDraft.amount) > sendableBalance) {
+      return {
+        intent: "SEND_HELP",
+        reply:
+          `You only have ${formatDisplayedAmount(sendableBalance)} ${sendDraft.token} sendable. ` +
+          "Lower the amount or refresh your wallet data."
+      };
+    }
+
+    return {
+      intent: "SEND",
+      reply:
+        `I staged a MiniMask send for ${sendDraft.amount} ${sendDraft.token} to ` +
+        `${formatWalletAddress(sendDraft.address)}. Review it in the action card and sign when ready.`,
+      sendDraft
+    };
+  }
+
   if (
     normalized.includes("show token prices") ||
     normalized === "show prices" ||
@@ -94,11 +168,58 @@ export function respondToMessage(message, walletAddress = "") {
     };
   }
 
+  if (
+    /\bbalance\b|\bbalances\b|check balance|wallet balance|what do i have|what's my balance/.test(
+      normalized
+    )
+  ) {
+    if (!walletAddress) {
+      return {
+        intent: "BALANCE",
+        reply: "Connect MiniMask first, then I can read your live sendable balances."
+      };
+    }
+
+    return {
+      intent: "BALANCE",
+      reply:
+        ownedTokens.length > 0
+          ? `Your sendable balances are ${getPortfolioSummary(sendableBalances)}.`
+          : "Your wallet is connected, but MiniMask is currently reporting zero sendable balance."
+    };
+  }
+
+  if (
+    normalized.includes("detect tokens") ||
+    normalized.includes("what tokens") ||
+    normalized.includes("tokens available") ||
+    normalized.includes("which tokens") ||
+    normalized.includes("what do i own")
+  ) {
+    if (!walletAddress) {
+      return {
+        intent: "TOKENS",
+        reply: "Connect MiniMask first, then I can detect which tokens are currently sendable."
+      };
+    }
+
+    return {
+      intent: "TOKENS",
+      reply:
+        ownedTokens.length > 0
+          ? `You currently own sendable ${ownedTokens.map((item) => item.symbol).join(" and ")}.`
+          : "MiniMask is connected, but I don't see any sendable MINIMA or USDT yet."
+    };
+  }
+
   if (/(hello|hi|hey|good morning|good afternoon|good evening)/.test(normalized)) {
     return {
       intent: "GREETING",
-      reply:
-        "MiniMask Connected flow ready. Direct On-Chain Mode signs swap requests locally and confirms them from the Minima blockchain."
+      reply: walletAddress
+        ? `MiniMask is connected at ${formatWalletAddress(walletAddress)}. ${getPortfolioSummary(
+            sendableBalances
+          )}`
+        : "MiniMask flow is ready. Connect your wallet and I can help with live balances, swaps, and sends."
     };
   }
 
@@ -106,15 +227,29 @@ export function respondToMessage(message, walletAddress = "") {
     return {
       intent: "BALANCE_HELP",
       reply:
-        "Sendable balance is the amount your MiniMask wallet can spend right now. Refresh wallet data to load the latest sendable figures from balancefull()."
+        "Sendable balance is what MiniMask says you can spend right now. The widget uses that live value to enable or disable swap and send actions."
+    };
+  }
+
+  if (
+    normalized.includes("send funds") ||
+    normalized.includes("send money") ||
+    normalized.includes("how do i send") ||
+    normalized.includes("facilitate")
+  ) {
+    return {
+      intent: "SEND_HELP",
+      reply:
+        "Say something like 'Send 2 minima to Mx...' and I'll stage the details in the MiniMask action widget for you."
     };
   }
 
   if (normalized.includes("wallet") || normalized.includes("connect")) {
     return {
       intent: "WALLET_HELP",
-      reply:
-        "Use Connect Wallet to detect MiniMask, then refresh to load your address, token balances, and sendable amounts."
+      reply: walletAddress
+        ? `MiniMask is connected. Use refresh to reload ${getPortfolioSummary(sendableBalances)}.`
+        : "Use Connect Wallet to detect MiniMask, then refresh to load your live sendable balances and available tokens."
     };
   }
 
@@ -126,8 +261,7 @@ export function respondToMessage(message, walletAddress = "") {
     return {
       intent: "MODE_HELP",
       reply:
-        `${directMode.modeLabel} means the app creates a real MiniMask transaction and stores the swap request in state variables on-chain. ` +
-        "There is no server-side payout flow and no automatic token settlement in this mode."
+        `${directMode.modeLabel} means the app prepares the transaction in the browser, MiniMask signs it locally, and the UI tracks confirmation directly from the Minima blockchain.`
     };
   }
 
@@ -135,7 +269,7 @@ export function respondToMessage(message, walletAddress = "") {
     return {
       intent: "BLOCKCHAIN_HELP",
       reply:
-        "The swap button creates a real Minima blockchain transaction. MiniMask signs it locally, the network confirms it, and the UI tracks the txpow until it lands on-chain."
+        "Every send or swap request is signed in MiniMask, submitted to Minima, and checked with txpow confirmation polling before the UI marks it successful."
     };
   }
 
@@ -143,13 +277,13 @@ export function respondToMessage(message, walletAddress = "") {
     return {
       intent: "MINIMA_INFO",
       reply:
-        "Minima is a lightweight blockchain designed for decentralization at the edge. In this app, MiniMask is the bridge that signs and submits your on-chain swap requests."
+        "Minima is a lightweight blockchain designed for decentralization at the edge. In this dashboard, MiniMask is the secure bridge for balances, sends, and on-chain swap signals."
     };
   }
 
   return {
     intent: "UNKNOWN",
     reply:
-      "Ask me for a swap quote, token prices, sendable balance help, wallet setup, or how Direct On-Chain Mode works."
+      "Ask me to check your balance, detect tokens, stage a send, quote a swap, show token prices, or explain how MiniMask works."
   };
 }
